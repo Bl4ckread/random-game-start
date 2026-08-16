@@ -7,11 +7,11 @@ includes("extern/styyx-utils")
 
 -- set up for project
 
-local mod_name = "MOD"
+local mod_name = "styyx-random-start-date"
 
 set_project(mod_name)
 set_version("1.0.0")
-set_license("MIT")
+set_license("proprietary")
 
 -- language and warnings
 set_languages("c++23")
@@ -28,7 +28,7 @@ includes("xmake-rules.lua")
 set_config("skyrim_ae",true)
 set_config("rex_toml", true)
 set_config("use-hook-utils", true)
---{{ADDITIONAL CONFIGS}}--
+
 
 -- add plugin target
 target(mod_name)

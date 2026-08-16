@@ -1,6 +1,6 @@
-name = "PLACEHOLDER"
-license = "PLACEHOLDER"
-workflowname = "PLACEHOLDER"
+name = "styyx-random-start-date"
+license = "proprietary"
+workflowname = "styyx-random-start-date"
 
 
 [configs]

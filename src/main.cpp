@@ -1,11 +1,10 @@
 #include "REX/REX/Singleton.h"
 #include "REX/REX/TOML.h"
 
-bool wasChanged              = false;
-static int cached_start_time = -1;
-bool started_fresh           = false;
+namespace RNSD
+{
 
-namespace RNSD::CONFIG
+namespace CONFIG
 {
 
 inline REX::TOML::Bool randomise_time{"General", "bRandomiseTime", true};
@@ -19,34 +18,14 @@ inline void LoadConfig()
     toml->Init("Data/SKSE/Plugins/time-randomiser.toml", "Data/SKSE/Plugins/time-randomiser_custom.toml");
     toml->Load();
 }
+} // namespace CONFIG
 
-} // namespace RNSD::CONFIG
-
-namespace RNSD::FORMS
-{
-inline RE::TESGlobal* game_month{};
-inline RE::TESGlobal* game_day{};
-inline RE::TESGlobal* game_time{};
-
-
-inline void LoadForms()
-{
-
-    game_month = RE::TESForm::LookupByEditorID<RE::TESGlobal>("GameMonth");
-    game_day   = RE::TESForm::LookupByEditorID<RE::TESGlobal>("GameDay");
-    game_time  = RE::TESForm::LookupByEditorID<RE::TESGlobal>("GameHour");
-
-    if (!game_month || !game_day || !game_time)
-    {
-        SKSE::stl::report_and_fail("Critical Error: Can NOT fine global variables");
-    }
-}
-
-} // namespace RNSD::FORMS
+bool wasChanged              = false;
+bool started_fresh           = false;
+static int cached_start_time = -1;
 
 void RandomiseGlobal(RE::TESGlobal* a_glob, int a_min, int a_max)
 {
-
     if (!a_glob)
     {
         return;
@@ -54,91 +33,80 @@ void RandomiseGlobal(RE::TESGlobal* a_glob, int a_min, int a_max)
     a_glob->value = RandomiserUtil::GetRandomInt(a_min, a_max);
 }
 
-
 void SetRandomStart()
 {
-    using namespace RNSD::FORMS;
-    if (RNSD::CONFIG::randomise_month.GetValue())
+    auto cal = RE::Calendar::GetSingleton();
+
+    if (!cal)
     {
-        RandomiseGlobal(game_month, 1, 12);
+        SKSE::stl::report_and_fail("Critical Error: Calendar singleton unavailable");
     }
 
+    int orig_month = static_cast<int>(cal->gameMonth->value);
+    int orig_day   = static_cast<int>(cal->gameDay->value);
 
-    int mo      = static_cast<int>(game_month->value);
-    int max_day = 28;
-    switch (mo)
+    if (CONFIG::randomise_month.GetValue())
     {
-
-        case 1:
-        case 3:
-        case 5:
-        case 7:
-        case 8:
-        case 10:
-        case 12:
-            max_day = 31;
-            break;
-        case 2:
-            max_day = 28;
-            break;
-        default:
-            max_day = 30;
-            break;
+        RandomiseGlobal(cal->gameMonth, RE::Calendar::Months::kMorningStar, RE::Calendar::Months::kEveningStar);
     }
 
+    int mo      = static_cast<int>(cal->gameMonth->value);
+    int max_day = RE::Calendar::DAYS_IN_MONTH[mo];
 
-    if (RNSD::CONFIG::randomise_day.GetValue())
+    if (CONFIG::randomise_day.GetValue())
     {
-        RandomiseGlobal(game_day, 1, max_day);
+        RandomiseGlobal(cal->gameDay, 1, max_day);
     }
 
-    if (RNSD::CONFIG::randomise_time.GetValue())
+    if (CONFIG::randomise_month.GetValue() || CONFIG::randomise_day.GetValue())
     {
-        RandomiseGlobal(game_time, 0, 23);
+        int new_month = static_cast<int>(cal->gameMonth->value);
+        int new_day   = static_cast<int>(cal->gameDay->value);
+        int delta = CalendarUtil::GetDayOfYear(new_month, new_day) - CalendarUtil::GetDayOfYear(orig_month, orig_day);
 
-        cached_start_time = game_time->value;
+        if (delta != 0)
+        {
+            cal->rawDaysPassed += static_cast<float>(delta);
+        }
     }
 
+    if (CONFIG::randomise_time.GetValue())
+    {
+        RandomiseGlobal(cal->gameHour, 0, 23);
+        cached_start_time = static_cast<int>(cal->gameHour->value);
+    }
 
-    logs::info("{} set to {}, {} set to {}, {} set to {}", game_month->GetFormEditorID(), game_month->value,
-               game_day->GetFormEditorID(), game_day->value, game_time->GetFormEditorID(), game_time->value);
+    logs::info("Start set to {} {} ({}), hour {}", cal->GetMonthName(), cal->GetDay(), cal->GetDayName(),
+               cal->GetHour());
 }
 
-
-namespace RNSD
-{
 struct RaceMenuHook
 {
-
     static inline void InstallHook() { HookUtils::WriteVFunc<RE::RaceSexMenu, 0, 0x4, RaceMenuHook>(); }
 
     static inline RE::UI_MESSAGE_RESULTS Call(RE::RaceSexMenu* a_this, RE::UIMessage& a_message)
     {
+        auto* calendar = RE::Calendar::GetSingleton();
 
         if (a_message.type == RE::UI_MESSAGE_TYPE::kShow)
         {
-            if (static_cast<int>(RNSD::FORMS::game_time->value) != cached_start_time)
-            {
-                wasChanged = false;
-            }
-            else
-            {
-                wasChanged = true;
-            }
+            wasChanged = (static_cast<int>(calendar->gameHour->value) == cached_start_time);
         }
 
-        if (a_message.type == RE::UI_MESSAGE_TYPE::kHide && !wasChanged && started_fresh)
+        if (a_message.type == RE::UI_MESSAGE_TYPE::kHide)
         {
-            wasChanged = true;
-            if (CONFIG::randomise_time.GetValue())
+
+            if (!wasChanged && started_fresh && CONFIG::randomise_time.GetValue())
             {
-                RandomiseGlobal(RNSD::FORMS::game_time, 0, 23);
+                RandomiseGlobal(calendar->gameHour, 0, 23);
             }
+            started_fresh = false;
         }
         return func(a_this, a_message);
     }
     static inline REL::Relocation<decltype(Call)> func;
 };
+
 } // namespace RNSD
 
 
@@ -147,14 +115,13 @@ void Listener(SKSE::MessagingInterface::Message* a_msg)
 
     switch (a_msg->type)
     {
-        case SKSE::MessagingInterface::kDataLoaded:
-            RNSD::FORMS::LoadForms();
-            started_fresh = false;
-            break;
         case SKSE::MessagingInterface::kNewGame:
-            wasChanged    = false;
-            started_fresh = true;
-            SetRandomStart();
+            RNSD::wasChanged    = false;
+            RNSD::started_fresh = true;
+            RNSD::SetRandomStart();
+            break;
+        case SKSE::MessagingInterface::kPostLoadGame:
+            RNSD::started_fresh = false;
             break;
     }
 }

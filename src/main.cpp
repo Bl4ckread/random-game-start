@@ -1,17 +1,26 @@
-
-#include "RE/R/RaceSexMenu.h"
-#include "RE/T/TESDataHandler.h"
-#include "RE/T/TESForm.h"
-#include "RE/U/UIMessage.h"
-#include "REL/Relocation.h"
-#include "SKSE/API.h"
-#include "SKSE/Impl/PCH.h"
-#include "SKSE/Interfaces.h"
-#include "st-hooks.h"
-#include "st-random.h"
+#include "REX/REX/Singleton.h"
+#include "REX/REX/TOML.h"
 
 bool wasChanged              = false;
 static int cached_start_time = -1;
+bool started_fresh           = false;
+
+namespace RNSD::CONFIG
+{
+
+inline REX::TOML::Bool randomise_time{"General", "bRandomiseTime", true};
+inline REX::TOML::Bool randomise_month{"General", "bRandomiseMonth", true};
+inline REX::TOML::Bool randomise_day{"General", "bRandomiseDay", true};
+
+inline void LoadConfig()
+{
+
+    auto toml = REX::Singleton<REX::TOML::SettingStore>::GetSingleton();
+    toml->Init("Data/SKSE/Plugins/time-randomiser.toml", "Data/SKSE/Plugins/time-randomiser_custom.toml");
+    toml->Load();
+}
+
+} // namespace RNSD::CONFIG
 
 namespace RNSD::FORMS
 {
@@ -49,7 +58,11 @@ void RandomiseGlobal(RE::TESGlobal* a_glob, int a_min, int a_max)
 void SetRandomStart()
 {
     using namespace RNSD::FORMS;
-    RandomiseGlobal(game_month, 1, 12);
+    if (RNSD::CONFIG::randomise_month.GetValue())
+    {
+        RandomiseGlobal(game_month, 1, 12);
+    }
+
 
     int mo      = static_cast<int>(game_month->value);
     int max_day = 28;
@@ -74,10 +87,18 @@ void SetRandomStart()
     }
 
 
-    RandomiseGlobal(game_day, 1, max_day);
-    RandomiseGlobal(game_time, 0, 23);
+    if (RNSD::CONFIG::randomise_day.GetValue())
+    {
+        RandomiseGlobal(game_day, 1, max_day);
+    }
 
-    cached_start_time = game_time->value;
+    if (RNSD::CONFIG::randomise_time.GetValue())
+    {
+        RandomiseGlobal(game_time, 0, 23);
+
+        cached_start_time = game_time->value;
+    }
+
 
     logs::info("{} set to {}, {} set to {}, {} set to {}", game_month->GetFormEditorID(), game_month->value,
                game_day->GetFormEditorID(), game_day->value, game_time->GetFormEditorID(), game_time->value);
@@ -106,10 +127,13 @@ struct RaceMenuHook
             }
         }
 
-        if (a_message.type == RE::UI_MESSAGE_TYPE::kHide && !wasChanged)
+        if (a_message.type == RE::UI_MESSAGE_TYPE::kHide && !wasChanged && started_fresh)
         {
             wasChanged = true;
-            RandomiseGlobal(RNSD::FORMS::game_time, 0, 23);
+            if (CONFIG::randomise_time.GetValue())
+            {
+                RandomiseGlobal(RNSD::FORMS::game_time, 0, 23);
+            }
         }
         return func(a_this, a_message);
     }
@@ -125,9 +149,11 @@ void Listener(SKSE::MessagingInterface::Message* a_msg)
     {
         case SKSE::MessagingInterface::kDataLoaded:
             RNSD::FORMS::LoadForms();
+            started_fresh = false;
             break;
         case SKSE::MessagingInterface::kNewGame:
-            wasChanged = false;
+            wasChanged    = false;
+            started_fresh = true;
             SetRandomStart();
             break;
     }
@@ -137,6 +163,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse)
 {
     Init(skse);
     RNSD::RaceMenuHook::InstallHook();
+    RNSD::CONFIG::LoadConfig();
     if (!SKSE::GetMessagingInterface()->RegisterListener(Listener))
     {
         return false;

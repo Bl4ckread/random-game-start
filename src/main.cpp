@@ -1,5 +1,10 @@
-#include "REX/REX/Singleton.h"
-#include "REX/REX/TOML.h"
+#include "RE/B/BaseFormComponent.h"
+#include "RE/R/RaceSexMenu.h"
+#include "RE/T/TESForm.h"
+#include "REL/THook.h"
+#include "REX/FTomlSettingStore.h"
+#include "REX/REX.h"
+#include "SKSE/Interfaces.h"
 
 namespace RNSD
 {
@@ -14,7 +19,7 @@ inline REX::TOML::Bool randomise_day{"General", "bRandomiseDay", true};
 inline void LoadConfig()
 {
 
-    auto toml = REX::Singleton<REX::TOML::SettingStore>::GetSingleton();
+    auto toml = REX::TSingleton<REX::FTomlSettingStore>::GetSingleton();
     toml->Init("Data/SKSE/Plugins/time-randomiser.toml", "Data/SKSE/Plugins/time-randomiser_custom.toml");
     toml->Load();
 }
@@ -39,7 +44,7 @@ void SetRandomStart()
 
     if (!cal)
     {
-        SKSE::stl::report_and_fail("Critical Error: Calendar singleton unavailable");
+        REX::FAIL("Critical Error: Calendar singleton unavailable");
     }
 
     int orig_month = static_cast<int>(cal->gameMonth->value);
@@ -76,14 +81,12 @@ void SetRandomStart()
         cached_start_time = static_cast<int>(cal->gameHour->value);
     }
 
-    logs::info("Start set to {} {} ({}), hour {}", cal->GetMonthName(), cal->GetDay(), cal->GetDayName(),
-               cal->GetHour());
+    REX::INFO("Start set to {} {} ({}), hour {}", cal->GetMonthName(), cal->GetDay(), cal->GetDayName(),
+              cal->GetHour());
 }
 
 struct RaceMenuHook
 {
-    static inline void InstallHook() { HookUtils::WriteVFunc<RE::RaceSexMenu, 0, 0x4, RaceMenuHook>(); }
-
     static inline RE::UI_MESSAGE_RESULTS Call(RE::RaceSexMenu* a_this, RE::UIMessage& a_message)
     {
         auto* calendar = RE::Calendar::GetSingleton();
@@ -104,18 +107,38 @@ struct RaceMenuHook
         }
         return func(a_this, a_message);
     }
-    static inline REL::Relocation<decltype(Call)> func;
+    static inline REL::THookVFT func{RE::RaceSexMenu::VTABLE[0], 0x4, Call};
 };
 
 } // namespace RNSD
 
+void SetGlobalsToStart()
+{
+
+
+    auto time  = RE::TESForm::LookupByEditorID<RE::TESGlobal>("GameHour");
+    auto month = RE::TESForm::LookupByEditorID<RE::TESGlobal>("GameMonth");
+    auto day   = RE::TESForm::LookupByEditorID<RE::TESGlobal>("GameDay");
+
+    if (day)
+        day->value = 0;
+    if (time)
+        time->value = 0;
+    if (month)
+        month->value = 0;
+}
 
 void Listener(SKSE::MessagingInterface::Message* a_msg)
 {
 
     switch (a_msg->type)
     {
+
+        case SKSE::MessagingInterface::kDataLoaded:
+            SetGlobalsToStart();
+            break;
         case SKSE::MessagingInterface::kNewGame:
+            SetGlobalsToStart();
             RNSD::wasChanged    = false;
             RNSD::started_fresh = true;
             RNSD::SetRandomStart();
@@ -126,10 +149,9 @@ void Listener(SKSE::MessagingInterface::Message* a_msg)
     }
 }
 
-SKSEPluginLoad(const SKSE::LoadInterface* skse)
+SKSE_PLUGIN_LOAD(const SKSE::LoadInterface* skse)
 {
     Init(skse);
-    RNSD::RaceMenuHook::InstallHook();
     RNSD::CONFIG::LoadConfig();
     if (!SKSE::GetMessagingInterface()->RegisterListener(Listener))
     {

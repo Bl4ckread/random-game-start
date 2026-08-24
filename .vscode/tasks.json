@@ -5,7 +5,7 @@
       "label": "VM: build AE",
       "type": "shell",
       "command": "build-mod",
-      "args": ["${workspaceFolderBasename}", "--target", "ae"],
+      "args": ["${workspaceFolderBasename}", "--libxse"],
       "group": { "kind": "build", "isDefault": true },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }

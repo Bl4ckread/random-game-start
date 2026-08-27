@@ -71,7 +71,7 @@ void SetRandomStart()
 
         if (delta != 0)
         {
-            cal->rawDaysPassed += static_cast<float>(delta);
+            cal->rawDaysPassed += static_cast<float>((delta + 52 * 7) % 7); // Ensure modulo is done on strictly non-negative values
         }
     }
 
@@ -112,33 +112,15 @@ struct RaceMenuHook
 
 } // namespace RNSD
 
-void SetGlobalsToStart()
-{
-
-
-    auto time  = RE::TESForm::LookupByEditorID<RE::TESGlobal>("GameHour");
-    auto month = RE::TESForm::LookupByEditorID<RE::TESGlobal>("GameMonth");
-    auto day   = RE::TESForm::LookupByEditorID<RE::TESGlobal>("GameDay");
-
-    if (day)
-        day->value = 0;
-    if (time)
-        time->value = 0;
-    if (month)
-        month->value = 0;
-}
-
 void Listener(SKSE::MessagingInterface::Message* a_msg)
 {
 
     switch (a_msg->type)
     {
 
-        case SKSE::MessagingInterface::kDataLoaded:
-            SetGlobalsToStart();
+        case SKSE::MessagingInterface::kDataLoaded:;
             break;
         case SKSE::MessagingInterface::kNewGame:
-            SetGlobalsToStart();
             RNSD::wasChanged    = false;
             RNSD::started_fresh = true;
             RNSD::SetRandomStart();
